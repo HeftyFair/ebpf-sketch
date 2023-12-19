@@ -1,0 +1,1 @@
+sudo ip link set dev veth1 xdp obj ./build/kernel/kernel.o sec xdp

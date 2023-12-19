@@ -1,0 +1,12 @@
+{
+    "files.associations": {
+        "libbpf.h": "c",
+        "bpf.h": "c",
+        "ip.h": "c",
+        "if_ether.h": "c",
+        "if_packet.h": "c",
+        "types.h": "c",
+        "bpf_endian.h": "c",
+        "icmpv6.h": "c"
+    }
+}
