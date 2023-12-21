@@ -9,8 +9,8 @@ import (
 
 func main() {
 	var wg sync.WaitGroup
-	url := "http://192.168.149.132:3000" // Replace with your server URL
-	requests := 1000                     // Number of requests you want to send
+	url := "http://192.168.1.195/app" // Replace with your server URL
+	requests := 1000                  // Number of requests you want to send
 
 	for i := 0; i < requests; i++ {
 		wg.Add(1)
