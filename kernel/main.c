@@ -2,6 +2,7 @@
 
 #include <linux/bpf.h>
 
+
 #include <bpf/bpf_helpers.h>
 #include <stdint.h>
 #include <linux/types.h>
@@ -16,6 +17,20 @@
 #include <linux/tcp.h>
 #include <linux/in.h>
 #include <bpf/bpf_endian.h>
+#include <stddef.h>
+
+
+//char LICENSE[] SEC("license") = "Dual BSD/GPL";
+
+#define K_FUNC 5
+#define COLUMN 25
+#define LAYERS 10
+#define HEAP_SIZE 5
+
+
+#define SEED_UNIVMON 0x9747b28c
+#define SEED_CMSKETCH 0xd6e2f2d9
+
 
 
 
@@ -51,14 +66,21 @@ static int __always_inline median(int *vect, int len) {
 }
 
 
-uint32_t trailing_zeros(unsigned int number) {
-    if (number == 0) 
-        return 32;
+static __attribute__((always_inline)) uint32_t min(uint32_t a, uint32_t b) {
+    return a < b ? a : b;
+}
 
-    unsigned int count = 0;
-    while ((number & 1) == 0) {
-        count++;
+static uint32_t trailing_zeros2(uint32_t V) {
+	V = V-(V&(V-1));
+	return( ( ( V & 0xFFFF0000 ) != 0 ? ( V &= 0xFFFF0000, 16 ) : 0 ) | ( ( V & 0xFF00FF00 ) != 0 ? ( V &= 0xFF00FF00, 8 ) : 0 ) | ( ( V & 0xF0F0F0F0 ) != 0 ? ( V &= 0xF0F0F0F0, 4 ) : 0 ) | ( ( V & 0xCCCCCCCC ) != 0 ? ( V &= 0xCCCCCCCC, 2 ) : 0 ) | ( ( V & 0xAAAAAAAA ) != 0 ) );
+}
+
+
+static __attribute__((always_inline)) uint32_t trailing_zeros(unsigned int number) {
+    uint32_t count = 0;
+    while (number & 1) {
         number >>= 1;
+        count++;
     }
     return count;
 }
@@ -121,14 +143,9 @@ static __attribute__((always_inline)) inline __u32 fasthash32(const void *buf, _
 
 
 
-#define K_FUNC 10
-#define COLUMN 256
-#define LAYERS 10
-#define HEAP_SIZE 5
-
-
-#define SEED_UNIVMON 0x9747b28c
-#define SEED_CMSKETCH 0xd6e2f2d9
+struct global_stats {
+    uint32_t total_pkts;
+} __attribute__((packed));
 
 
 
@@ -151,19 +168,106 @@ struct count_sketch {
 };
 
 
-static uint32_t t5_hash(struct t5 *t, uint32_t seed) {
+struct {
+        __uint(type, BPF_MAP_TYPE_ARRAY);
+        __uint(max_entries, LAYERS);
+        __type(key, uint32_t);
+        __type(value, struct count_sketch);
+} um_sketch SEC(".maps");
+
+
+struct {
+        __uint(type, BPF_MAP_TYPE_ARRAY);
+        __uint(max_entries, 1);
+        __type(key, uint32_t);
+        __type(value, struct global_stats);
+} stats SEC(".maps");
+
+
+/*
+struct bpf_map_def SEC("maps") univmon_sketch = {
+    .type = BPF_MAP_TYPE_ARRAY,
+    .key_size = sizeof(uint32_t),
+    .value_size = sizeof(struct count_sketch),
+    .max_entries = LAYERS,
+};
+*/
+
+static inline uint32_t t5_hash(struct t5 *t, uint32_t seed) {
     uint32_t hash = 0;
     hash = fasthash32(t, sizeof(struct t5), seed);
     return hash;
 }
 
-static void topk_update(struct topk_entry *topk, int value, struct t5 *t) {
+static void __always_inline insertionSort(struct count_sketch *md) {
+    int i, j;
+    struct topk_entry key;
+
+#pragma clang loop unroll(full)
+    for (i = 1; i < HEAP_SIZE; i++) {
+        // __builtin_memcpy(&key, &arr[i], sizeof(struct topk_entry));
+        key = md->_topk[i];
+        j = i - 1;
+ 
+        while(j >= 0 && md->_topk[j].value < key.value){
+            md->_topk[j+1] = md->_topk[j];		
+            j = j - 1;		
+        }
+
+        // __builtin_memcpy(&arr[j + 1], &key, sizeof(struct topk_entry));
+        md->_topk[j + 1] = key;
+    }
+}
+
+static void __always_inline insert_into_heap(struct count_sketch *md, int median, struct t5 *pkt) {
+    int index = -1;
+
+    for (int i = 0; i < HEAP_SIZE; i++) {
+        struct t5 origin_pkt = md->_topk[i].tuple;
+        // bpf_probe_read_kernel(&origin, sizeof(origin), &md->topks[layer][i].tuple);
+        if (origin_pkt.dst_ip == pkt->dst_ip &&
+            origin_pkt.src_ip == pkt->src_ip &&
+            origin_pkt.protocol == pkt->protocol &&
+            origin_pkt.dst_port == pkt->dst_port &&
+            origin_pkt.src_port == pkt->src_port) {
+                index = i;
+                break;
+        }
+    }
+
+    if (index >= 0) {
+        if (md->_topk[index].value < median) {
+            md->_topk[index].value = median;
+            md->_topk[index].tuple = *pkt;
+        } else {
+            return;
+        }
+    } else {
+        // The element is not in the array, let's insert a new one.
+        // What I do is to insert in the last position, and then sort the array
+        if (md->_topk[HEAP_SIZE-1].value < median) {
+            md->_topk[HEAP_SIZE-1].value = median;
+            md->_topk[HEAP_SIZE-1].tuple = *pkt;
+        } else {
+            return;
+        }
+    }
+    insertionSort(md);
+}
+
+
+static __attribute__((always_inline)) inline void topk_update(struct topk_entry *topk, int value, struct t5 *t) {
+    if (!topk) {
+        return;
+    }
+
     if (value < topk[0].value) {
         return;
     }
     topk[0].value = value;
     topk[0].tuple = *t;
     int i = 0;
+    #pragma unroll
     while (i < HEAP_SIZE) {
         int max = i;
         if (2 * i + 1 < HEAP_SIZE && topk[2 * i + 1].value > topk[max].value) {
@@ -184,35 +288,76 @@ static void topk_update(struct topk_entry *topk, int value, struct t5 *t) {
 
 
 static void cs_update_sketch(struct count_sketch *skt, struct t5 *t) {
+    if (!skt) {
+        return;
+    }
+    #pragma clang loop unroll(full)
     for (int i = 0; i < K_FUNC; i++) {
         uint32_t hash = t5_hash(t, SEED_CMSKETCH + i);
-        uint32_t index = hash % COLUMN;
-        skt->_cnt[i][index] += TEST_BIT(hash, 31) ? -1 : 1;
+        //uint32_t hash = 1;
+        uint32_t index = hash & (COLUMN - 1);
+        if (TEST_BIT(hash, 31)) {
+            skt->_cnt[i][index]--;
+        } else {
+            skt->_cnt[i][index]++;
+        }
+        //skt->_cnt[i][index] += (TEST_BIT(hash, 31) ? -1 : 1);
     }
 }
 
-static uint32_t cs_query_sketch(struct count_sketch *skt, struct t5 *t) {
+static int cs_query_sketch(struct count_sketch *skt, struct t5 *t) {
+    if (!skt) {
+        return 0;
+    }
     int value[K_FUNC] = {0};
 
+    #pragma clang loop unroll(full)
     for (int i = 0; i < K_FUNC; i++) {
         uint32_t hash = t5_hash(t, SEED_CMSKETCH + i);
-        uint32_t index = hash % COLUMN;
-        value[i] += (TEST_BIT(hash, 31) ? -1 : 1) * skt->_cnt[i][index];
+        uint32_t index = hash & (COLUMN - 1);
+        if (TEST_BIT(hash, 31)) {
+            value[i] = -skt->_cnt[i][index];
+        } else {
+            value[i] = skt->_cnt[i][index];
+        }
+        //value[i] += (TEST_BIT(hash, 31) ? -1 : 1) * skt->_cnt[i][index];
     }
     return median(value, K_FUNC);
 }
 
 
-struct bpf_map_def SEC("maps") univmon_sketch = {
-    .type = BPF_MAP_TYPE_PERCPU_ARRAY,
-    .key_size = sizeof(uint32_t),
-    .value_size = sizeof(struct count_sketch),
-    .max_entries = LAYERS,
+
+struct ctx {
+    int max_l;
+    struct t5 t;
 };
 
-uint32_t min(uint32_t a, uint32_t b) {
-    return a < b ? a : b;
+static inline struct count_sketch* um_sketch_get(const void *key) {
+    return bpf_map_lookup_elem(&um_sketch, key);
 }
+
+
+static int update(__u32 index, struct ctx *ctx) {
+    struct t5 t = ctx->t;
+    if (!ctx) {
+        return 1;
+    }
+    int i = index;
+    if (i >= ctx->max_l) {
+        return 1;
+    }
+    
+    struct count_sketch *skt = bpf_map_lookup_elem(&um_sketch, &i);;
+    if (skt) {
+        cs_update_sketch(skt, &t);
+        int result = cs_query_sketch(skt, &t);
+        
+        //topk_update(skt->_topk, result, &t);
+        insert_into_heap(skt, result, &t);
+    }
+    return 0;
+}
+
 
 
 SEC("xdp")
@@ -223,7 +368,7 @@ int xdp_rcv(struct xdp_md *ctx) {
     void *data_end = (void *)(long)ctx->data_end;
     void *data = (void *)(long)ctx->data;
     
-    if (data + sizeof(struct ethhdr) + sizeof(struct iphdr) + sizeof(struct udphdr) + 1 > data_end) {
+    if (data + sizeof(struct ethhdr) + sizeof(struct iphdr) + sizeof(struct tcphdr) + 1 > data_end) {
         return XDP_PASS;
     }
     struct ethhdr *eth = data;
@@ -239,36 +384,72 @@ int xdp_rcv(struct xdp_md *ctx) {
     // get 5-tuple
     uint32_t key = 0;
     struct t5 t;
+    
     t.src_ip = iphdr->saddr;
     t.dst_ip = iphdr->daddr;
     t.src_port = tcphdr->source;
     t.dst_port = tcphdr->dest;
     t.protocol = iphdr->protocol;
-    // update first sketch
-    struct count_sketch *skt = bpf_map_lookup_elem(&univmon_sketch, &key);
-
     
+
+    /*
+    t.src_ip = bpf_ntohl(iphdr->saddr);
+    t.dst_ip = bpf_ntohl(iphdr->daddr);
+    t.src_port = bpf_ntohs(tcphdr->source);
+    t.dst_port = bpf_ntohs(tcphdr->dest);
+    t.protocol = iphdr->protocol;
+    */
+
+    // update first sketch
+    
+    uint32_t sk = fasthash32(&t, sizeof(struct t5), SEED_UNIVMON);
+
+    // print hash and t5
+    bpf_printk("hash: %x for src_ip\n", sk);
+    //bpf_printk("src_port: %u\n", t.src_port);
+    //bpf_printk("dst_port: %u\n", t.dst_port);
+
+    sk &= 0xfffffffe;
+
+    uint32_t gs_key = 0;
+    struct global_stats *gs = bpf_map_lookup_elem(&stats, &gs_key);
+    if (gs) {
+        
+        gs->total_pkts++;
+    }
+    
+    uint32_t max_l = min(trailing_zeros2(sk), LAYERS);
+
+    struct ctx loop_ctx;
+    //loop_ctx.i = 0;
+    loop_ctx.max_l = max_l;
+    loop_ctx.t = t;
+    //loop_ctx.skt = &um_sketch;
+    //struct count_sketch skt_tmp[LAYERS] = bpf_map_lookup_elem(&univmon_sketch, &max_l);
+    bpf_loop(LAYERS, update, &loop_ctx, 0);
+
+    /*
+    for (int i = 1; i < LAYERS - 1; i++) {
+        if (i >= max_l) {
+            break;
+        }
+        //bpf_probe_read_kernel(&t, sizeof(struct t5), &t);
+        struct count_sketch *skt = bpf_map_lookup_elem(&univmon_sketch, &i);
+        if (skt) {
+            cs_update_sketch(skt, &t);
+            int result = cs_query_sketch(skt, &t);
+            topk_update(skt->_topk, result, &t);
+        }
+    }*/
+
+    /*
+    struct count_sketch *skt = bpf_map_lookup_elem(&univmon_sketch, &max_l);
 
     if (skt) {
         cs_update_sketch(skt, &t);
-    }
+        int result = cs_query_sketch(skt, &t);
+        topk_update(skt->_topk, result, &t);
+    }*/
 
-    // other sketch
-    uint32_t sk = fasthash32(&t, sizeof(struct t5), SEED_UNIVMON);
-    sk &= ~1;
-    uint32_t max_l = min(trailing_zeros(sk), LAYERS);
-
-    for (int i = 1; i < max_l; i++) {
-        key = i;
-        struct count_sketch *skt = bpf_map_lookup_elem(&univmon_sketch, &key);
-        if (skt) {
-            cs_update_sketch(skt, &t);
-            uint32_t result = 0;
-            result = cs_query_sketch(skt, &t);
-            topk_update(skt->_topk, result, &t);
-        }
-    }
-    
-    
     return XDP_PASS;
 }

@@ -1,0 +1,1 @@
+sudo ip link set dev ens33 xdp off
