@@ -29,8 +29,8 @@
 
 //char LICENSE[] SEC("license") = "Dual BSD/GPL";
 
-#define K_FUNC 10
-#define COLUMN 2048
+#define K_FUNC 7
+#define COLUMN 512
 #define LAYERS 32
 #define HEAP_SIZE 35
 
@@ -176,7 +176,7 @@ struct count_sketch {
 
 
 struct {
-        __uint(type, BPF_MAP_TYPE_ARRAY);
+        __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
         __uint(max_entries, LAYERS);
         __type(key, uint32_t);
         __type(value, struct count_sketch);
@@ -184,7 +184,7 @@ struct {
 
 
 struct {
-        __uint(type, BPF_MAP_TYPE_ARRAY);
+        __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
         __uint(max_entries, 1);
         __type(key, uint32_t);
         __type(value, struct global_stats);

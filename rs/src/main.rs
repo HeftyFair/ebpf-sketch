@@ -1,6 +1,7 @@
 
 use std::fs::File;
 use std::mem;
+use std::ops::{Deref, DerefMut};
 use aya::{Bpf, Pod};
 use aya::maps::{PerCpuArray, PerCpuValues, Array};
 use aya::programs::{CgroupSkb, CgroupSkbAttachType, XdpFlags};
@@ -12,8 +13,8 @@ mod hash;
 use hash::FastHash;
 
 
-const K_FUNC: usize = 10;
-const COLUMN: usize = 2048;
+const K_FUNC: usize = 7;
+const COLUMN: usize = 512;
 const HEAP_SIZE: usize = 35;
 const LAYERS: usize = 32;
 
@@ -171,10 +172,16 @@ fn load_bpf() -> Result<(), anyhow::Error> {
 
     
     //println!("hello\n");
-    let array: Array<&aya::maps::MapData, CountSketch>  = Array::try_from(bpf.map("um_sketch").unwrap()).unwrap();
+    //let array: Array<&aya::maps::MapData, CountSketch>  = Array::try_from(bpf.map("um_sketch").unwrap()).unwrap();
 
-    let stats_arr: Array<&aya::maps::MapData, GlobalStats>  = Array::try_from(bpf.map("stats").unwrap()).unwrap();
+
+    let arraypc: PerCpuArray<&aya::maps::MapData, CountSketch>  = PerCpuArray::try_from(bpf.map("um_sketch").unwrap()).unwrap();
+
+    
+
+    //let stats_arr: Array<&aya::maps::MapData, GlobalStats>  = Array::try_from(bpf.map("stats").unwrap()).unwrap();
     let zero = 0;
+    let stats_arrpc: PerCpuArray<&aya::maps::MapData, GlobalStats>  = PerCpuArray::try_from(bpf.map("stats").unwrap()).unwrap();
     
 
     // set array[1] = 42 for all cpus
@@ -183,46 +190,60 @@ fn load_bpf() -> Result<(), anyhow::Error> {
     println!("nr_cpus: {}", nr_cpus);
     loop {
 
-        //println!("BEGIN\n");
-        let stats = stats_arr.get(&zero, 0)?;
-        let tot = stats.total_pkts;
-        // array to fixed sized sketch
-        let mut sketches: [CountSketch; LAYERS] = [CountSketch::default(); LAYERS];
-        // get all array
-        for i in 0..LAYERS {
-            let idx: u32 = i.try_into().unwrap();
-            let sketch: CountSketch = array.get(&idx, 0)?;
-            sketches[i] = sketch;
-        }
-        println!("total pkts: {}", tot);
-        let r = estimate(&mut sketches, |x: i32| x);
-        println!("estimated packet number: {}", r);
-        let rr = estimate(&mut sketches, |x: i32| { if x == 0 { 0 } else { 1 } });
-        println!("estimated unique k: {}", rr);
-        let est_entropy = estimate(&mut sketches, |x: i32| { 
-            if x == 0 || tot == 0 { 0 } else { 
-                let x = x as f64;
-                let n = tot as f64;
-                let p = n / x;
-                ((x * p.log2()) / n) as i32 
+        for cur_cpu in 0..3 {
+            
+            //println!("BEGIN\n");
+            let statspc = stats_arrpc.get(&zero, 0)?;
+            let stats = statspc[cur_cpu];
+            //statspc.deref();
+            //let stats = stats_arr.get(&zero, 0)?;
+            let tot = stats.total_pkts;
+            // array to fixed sized sketch
+
+            let mut sketches: [CountSketch; LAYERS] = [CountSketch::default(); LAYERS];
+            // get all array
+            for i in 0..LAYERS {
+                let idx: u32 = i.try_into().unwrap();
+                let sss = arraypc.get(&idx, 0)?;
+                let sketch: CountSketch = sss[cur_cpu];
+                sketches[i] = sketch;
             }
-        });
-        //println!("estimated Shannon entropy: {}", est_entropy);
+
+            println!("\nbegin cpu {}", cur_cpu);
+
+            println!("total pkts: {}", tot);
+            let r = estimate(&mut sketches, |x: i32| x);
+            println!("estimated packet number: {}", r);
+            let rr = estimate(&mut sketches, |x: i32| { if x == 0 { 0 } else { 1 } });
+            println!("estimated unique k: {}", rr);
+            let est_entropy = estimate(&mut sketches, |x: i32| { 
+                if x == 0 || tot == 0 { 0 } else { 
+                    let x = x as f64;
+                    let n = tot as f64;
+                    let p = n / x;
+                    ((x * p.log2()) / n) as i32 
+                }
+            });
+
+            println!("end cpu {}\n", cur_cpu);
+            //println!("estimated Shannon entropy: {}", est_entropy);
+            /*
+            for i in 0..LAYERS {
+                // print sketch 
+                let idx: u32 = i.try_into().unwrap();
+                let sketch: CountSketch = array.get(&idx, 0)?;
+                //println!("the {}th layer\n", i);
+                
+                // print each topk
+                for j in 0..HEAP_SIZE {
+                    //println!("topk[{}]: {:?}", j, sketch.topk[j]);
+                }
+                
+                //println!("sketch: {:?}", sketch.topk);
+                //println!("sketch: {:?}", sketch);
+            }*/
+        }
         
-        for i in 0..LAYERS {
-            // print sketch 
-            let idx: u32 = i.try_into().unwrap();
-            let sketch: CountSketch = array.get(&idx, 0)?;
-            //println!("the {}th layer\n", i);
-            
-            // print each topk
-            for j in 0..HEAP_SIZE {
-                //println!("topk[{}]: {:?}", j, sketch.topk[j]);
-            }
-            
-            //println!("sketch: {:?}", sketch.topk);
-            //println!("sketch: {:?}", sketch);
-        }
 
         std::thread::sleep(std::time::Duration::from_secs(3));
     }
