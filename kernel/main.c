@@ -20,12 +20,19 @@
 #include <stddef.h>
 
 
+
+
+#include "murmurhash.h"
+
+
+
+
 //char LICENSE[] SEC("license") = "Dual BSD/GPL";
 
-#define K_FUNC 5
-#define COLUMN 25
-#define LAYERS 10
-#define HEAP_SIZE 5
+#define K_FUNC 10
+#define COLUMN 2048
+#define LAYERS 32
+#define HEAP_SIZE 35
 
 
 #define SEED_UNIVMON 0x9747b28c
@@ -141,7 +148,7 @@ static __attribute__((always_inline)) inline __u32 fasthash32(const void *buf, _
 
 #define TEST_BIT(var,pos) ((var) & (1<<(pos)))
 
-
+#define TEST_BIT64(var,pos) ((var) & (1L<<(pos)))
 
 struct global_stats {
     uint32_t total_pkts;
@@ -291,6 +298,8 @@ static void cs_update_sketch(struct count_sketch *skt, struct t5 *t) {
     if (!skt) {
         return;
     }
+    //struct t5 t_tmp;
+    //bpf_probe_read_kernel(&t_tmp, sizeof(struct t5), &t);
     #pragma clang loop unroll(full)
     for (int i = 0; i < K_FUNC; i++) {
         uint32_t hash = t5_hash(t, SEED_CMSKETCH + i);
@@ -309,6 +318,8 @@ static int cs_query_sketch(struct count_sketch *skt, struct t5 *t) {
     if (!skt) {
         return 0;
     }
+    //struct t5 t_tmp;
+    //bpf_probe_read_kernel(&t_tmp, sizeof(struct t5), &t);
     int value[K_FUNC] = {0};
 
     #pragma clang loop unroll(full)
@@ -358,37 +369,51 @@ static int update(__u32 index, struct ctx *ctx) {
     return 0;
 }
 
-
+#define ACTION XDP_DROP
 
 SEC("xdp")
 int xdp_rcv(struct xdp_md *ctx) {
 
-    //struct tcphdr *tcphdr;
+    struct tcphdr *tcphdr;
+    struct udphdr *udphdr;
     struct iphdr *iphdr;
     void *data_end = (void *)(long)ctx->data_end;
     void *data = (void *)(long)ctx->data;
     
-    if (data + sizeof(struct ethhdr) + sizeof(struct iphdr) + sizeof(struct tcphdr) + 1 > data_end) {
-        return XDP_PASS;
+    if (data + sizeof(struct ethhdr) + sizeof(struct iphdr) > data_end) {
+        return ACTION;
     }
     struct ethhdr *eth = data;
     if (eth->h_proto != bpf_htons(ETH_P_IP)) {
-        return XDP_PASS;
+        return ACTION;
     }
     iphdr = data + sizeof(struct ethhdr);
-    if (iphdr->protocol != IPPROTO_TCP) {
-        return XDP_PASS;
-    }
 
-    struct tcphdr *tcphdr = data + sizeof(struct ethhdr) + sizeof(struct iphdr);
     // get 5-tuple
     uint32_t key = 0;
     struct t5 t;
-    
+
+    if (iphdr->protocol == IPPROTO_TCP) {
+        tcphdr = data + sizeof(struct ethhdr) + sizeof(struct iphdr);
+        if (tcphdr + sizeof(struct tcphdr) > data_end) {
+            return ACTION;
+        }
+        t.src_port = tcphdr->source;
+        t.dst_port = tcphdr->dest;
+    } else if (iphdr->protocol == IPPROTO_UDP) {
+        udphdr = data + sizeof(struct ethhdr) + sizeof(struct iphdr);
+        if (udphdr + sizeof(struct udphdr) > data_end) {
+            return ACTION;
+        }
+        t.src_port = udphdr->source;
+        t.dst_port = udphdr->dest;
+    } else {
+        return ACTION;
+    }
+
+
     t.src_ip = iphdr->saddr;
     t.dst_ip = iphdr->daddr;
-    t.src_port = tcphdr->source;
-    t.dst_port = tcphdr->dest;
     t.protocol = iphdr->protocol;
     
 
@@ -405,7 +430,7 @@ int xdp_rcv(struct xdp_md *ctx) {
     uint32_t sk = fasthash32(&t, sizeof(struct t5), SEED_UNIVMON);
 
     // print hash and t5
-    bpf_printk("hash: %x for src_ip\n", sk);
+    //bpf_printk("hash: %x for src_ip\n", sk);
     //bpf_printk("src_port: %u\n", t.src_port);
     //bpf_printk("dst_port: %u\n", t.dst_port);
 
@@ -451,5 +476,5 @@ int xdp_rcv(struct xdp_md *ctx) {
         topk_update(skt->_topk, result, &t);
     }*/
 
-    return XDP_PASS;
+    return XDP_DROP;
 }

@@ -12,10 +12,10 @@ mod hash;
 use hash::FastHash;
 
 
-const K_FUNC: usize = 5;
-const COLUMN: usize = 25;
-const HEAP_SIZE: usize = 5;
-const LAYERS: usize = 10;
+const K_FUNC: usize = 10;
+const COLUMN: usize = 2048;
+const HEAP_SIZE: usize = 35;
+const LAYERS: usize = 32;
 
 
 const SEED_UNIVMON: u64 = 0x9747b28c;
@@ -109,10 +109,19 @@ struct TopkEntry {
     tuple: T5,
 }
 
-#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 struct CountSketch {
     cnt: [[i32; COLUMN]; K_FUNC],
     topk: [TopkEntry; HEAP_SIZE],
+}
+
+impl Default for CountSketch {
+    fn default() -> Self {
+        CountSketch {
+            cnt: [[0; COLUMN]; K_FUNC],
+            topk: [TopkEntry::default(); HEAP_SIZE],
+        }
+    }
 }
 
 unsafe impl Pod for CountSketch {}
@@ -158,7 +167,7 @@ fn load_bpf() -> Result<(), anyhow::Error> {
     let ingress: &mut Xdp = bpf.program_mut("xdp_rcv").unwrap().try_into()?;
     ingress.load()?;
     //println!("success\n");
-    let linkId =  ingress.attach("ens33", XdpFlags::SKB_MODE ).unwrap();
+    let linkId =  ingress.attach("veth0", XdpFlags::DRV_MODE ).unwrap();
 
     
     //println!("hello\n");
@@ -168,11 +177,10 @@ fn load_bpf() -> Result<(), anyhow::Error> {
     let zero = 0;
     
 
-
     // set array[1] = 42 for all cpus
     let nr_cpus = nr_cpus()?;
 
-    
+    println!("nr_cpus: {}", nr_cpus);
     loop {
 
         //println!("BEGIN\n");
@@ -196,10 +204,10 @@ fn load_bpf() -> Result<(), anyhow::Error> {
                 let x = x as f64;
                 let n = tot as f64;
                 let p = n / x;
-                (p * p.log2()) as i32 
+                ((x * p.log2()) / n) as i32 
             }
         });
-        println!("estimated Shannon entropy: {}", est_entropy);
+        //println!("estimated Shannon entropy: {}", est_entropy);
         
         for i in 0..LAYERS {
             // print sketch 
