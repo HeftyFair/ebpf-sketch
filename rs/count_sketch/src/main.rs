@@ -11,18 +11,20 @@ use std::mem;
 use aya::programs::Xdp;
 use aya::util::nr_cpus;
 
-mod hash;
-use colored::Colorize;
 use hash::FastHash;
+use colored::Colorize;
+
 
 const K_FUNC: usize = 7;
-const COLUMN: usize = 512;
-const HEAP_SIZE: usize = 35;
-const LAYERS: usize = 32;
+const COLUMN: usize = 2048;
+const HEAP_SIZE: usize = 15;
+const LAYERS: usize = 1;
+
+const P: f64 = 0.05;
 
 const SEED_UNIVMON: u64 = 0x9747b28c;
 
-const RND_CNT: usize = 100;
+const RND_CNT: usize = 5000;
 
 #[derive(Copy, Clone, Default, PartialEq, Eq)]
 #[repr(C, packed)]
@@ -40,6 +42,7 @@ struct Meta {
     rnd: [u32; RND_CNT],
     idx: u32,
     rnd_idx: u32,
+    cnt: u32
 }
 
 impl Default for Meta {
@@ -48,6 +51,7 @@ impl Default for Meta {
             rnd: [0; RND_CNT],
             idx: 0,
             rnd_idx: 0,
+            cnt: 0
         }
     }
 }
@@ -188,182 +192,61 @@ impl Default for CountSketch {
 
 unsafe impl Pod for CountSketch {}
 
-fn estimate_f64(sketches: &[CountSketch; LAYERS], g: impl Fn(f64) -> f64) -> f64 {
-    // Your code logic here
-    let mut y: [f64; LAYERS] = [0.0; LAYERS];
-    for i in 0..LAYERS {
-        for k in 0..HEAP_SIZE {
-            y[i] += g(sketches[i].topk[k].value as f64);
-        }
-    }
 
-    for i in (0..LAYERS - 1).rev() {
-        let mut yy = 0.0;
-        for k in 0..HEAP_SIZE {
-            let hk = sketches[i].topk[k].tuple.h(i + 1);
-            //println!("hash {:#x}", sketches[i].topk[k].tuple.hash32(SEED_UNIVMON));
-            //println!("hk: {} on {} for t5 {:?}", hk, i + 1,  sketches[i].topk[k].tuple);
 
-            yy += (1 - 2 * hk) as f64 * g(sketches[i].topk[k].value as f64);
-        }
-        y[i] = y[i + 1] * 2.0 + yy;
-    }
-    y[0]
-}
 
-fn estimate(sketches: &[CountSketch; LAYERS], g: impl Fn(i32) -> i32) -> i32 {
-    // Your code logic here
-    let mut y: [i32; LAYERS] = [0; LAYERS];
-    for i in 0..LAYERS {
-        for k in 0..HEAP_SIZE {
-            y[i] += g(sketches[i].topk[k].value);
-        }
-    }
-
-    for i in (0..LAYERS - 1).rev() {
-        let mut yy = 0;
-        for k in 0..HEAP_SIZE {
-            let hk = sketches[i].topk[k].tuple.h(i + 1);
-            //println!("hash {:#x}", sketches[i].topk[k].tuple.hash32(SEED_UNIVMON));
-            //println!("hk: {} on {} for t5 {:?}", hk, i + 1,  sketches[i].topk[k].tuple);
-
-            yy += (1 - 2 * hk) * g(sketches[i].topk[k].value);
-        }
-        y[i] = y[i + 1] * 2 + yy;
-    }
-    y[0]
-}
-
-fn estimate_change(sketches: &[CountSketch; LAYERS], last_sketches: &[CountSketch; LAYERS]) {
-    // Your code logic here
-    let mut y: [i32; LAYERS] = [0; LAYERS];
-
-    for i in 0..LAYERS {
-        for k in 0..HEAP_SIZE {
-            let pre = match lookup(
-                &last_sketches[i].topk.map(|entry| entry.tuple),
-                &sketches[i].topk[k].tuple,
-            ) {
-                Some(x) => x,
-                None => 0,
-            };
-            y[i] += (sketches[i].topk[k].value - pre).abs();
-        }
-    }
-
-    for i in (0..LAYERS - 1).rev() {
-        let mut yy = 0;
-        for k in 0..HEAP_SIZE {
-            let hk = sketches[i].topk[k].tuple.h(i + 1);
-            //println!("hash {:#x}", sketches[i].topk[k].tuple.hash32(SEED_UNIVMON));
-            //println!("hk: {} on {} for t5 {:?}", hk, i + 1,  sketches[i].topk[k].tuple);
-            let pre = match lookup(
-                &last_sketches[i].topk.map(|entry| entry.tuple),
-                &sketches[i].topk[k].tuple,
-            ) {
-                Some(x) => x,
-                None => 0,
-            };
-            yy += (1 - 2 * hk) * (sketches[i].topk[k].value - pre).abs();
-        }
-        y[i] = y[i + 1] * 2 + yy;
-    }
-    println!("total y: {:?}", y[0]);
-}
 
 fn load_bpf() -> Result<(), anyhow::Error> {
 
 
-    let mut bpf = Bpf::load_file("../build/kernel/kernel.o").unwrap();
+    let mut bpf = Bpf::load_file("../build/kernel/count_sketch.o").unwrap();
 
-    bpf.maps().for_each(|map| {
-        println!("map: {:?}", map);
-    });
-
-    /*
+    println!("{:?}", bpf);
+    
     let mut rnd: Array<&mut aya::maps::MapData, Meta> =
         Array::try_from(bpf.map_mut("meta").unwrap())?;
 
-    let geo = Geometric::new(0.25).unwrap();
+    let geo = Geometric::new(P).unwrap();
     let mut meta = Meta::default();
     for i in 0..RND_CNT {
-        meta.rnd[i] = geo.sample(&mut rand::thread_rng()) as u32;
+        meta.rnd[i] = (geo.sample(&mut rand::thread_rng()) + 1) as u32;
     }
     println!("meta: {:?}", meta);
-    rnd.set(0, &meta, 0)?;*/
-    //println!("bpf: {:?}", bpf);
-    //println!("success\n");
-
+    rnd.set(0, &meta, 0)?;
 
 
 
     let ingress: &mut Xdp = bpf.program_mut("xdp_rcv").unwrap().try_into()?;
     ingress.load()?;
     
-    //println!("success\n");
     let link_id = ingress.attach("veth0", XdpFlags::DRV_MODE).unwrap();
 
     //println!("hello\n");
     let array: Array<&aya::maps::MapData, CountSketch> =
         Array::try_from(bpf.map("um_sketch").unwrap()).unwrap();
 
-    let stats_arr: Array<&aya::maps::MapData, GlobalStats> =
-        Array::try_from(bpf.map("stats").unwrap()).unwrap();
-    let zero = 0;
+    let meta_stat: Array<&aya::maps::MapData, Meta> =
+        Array::try_from(bpf.map("meta").unwrap())?;   
 
-    // set array[1] = 42 for all cpus
-    let nr_cpus = nr_cpus()?;
-    let mut last = Box::new([CountSketch::default(); LAYERS]);
-    println!("nr_cpus: {}", nr_cpus);
+    let zero = 0;
     loop {
+        //print!("{}[2J", 27 as char);
         //println!("BEGIN\n");
-        let stats = stats_arr.get(&zero, 0)?;
-        let tot = stats.total_pkts;
+
+
+        
+        let tot = meta_stat.get(&zero, 0)?.cnt;
+        print!("total pkts: {}\n", tot);
         // array to fixed sized sketch
-        let mut sketches = Box::new([CountSketch::default(); LAYERS]);
 
         // get all array
-        for i in 0..LAYERS {
-            let idx: u32 = i.try_into().unwrap();
-            let sketch: CountSketch = array.get(&idx, 0)?;
-            sketches[i] = sketch;
-            //sketch.print();
-        }
-        println!("total pkts: {}", tot);
-        let r = estimate(sketches.borrow(), |x: i32| x);
-        println!("estimated packet number: {}", r);
-        let rr = estimate(sketches.borrow(), |x: i32| if x == 0 { 0 } else { 1 });
-        println!("estimated unique k: {}", rr);
-        let est_entropy = estimate_f64(sketches.borrow(), |x: f64| {
-            if x == 0.0 || tot == 0 {
-                0.0
-            } else {
-                let n = tot as f64;
-                let p = x / n;
-                (-p * p.log2()) as f64
-            }
-        });
-        println!("estimated {}: {}", "Shannon entropy".red(), est_entropy);
-
-        //estimate_change(&sketches, last.borrow());
-
-        for i in 0..LAYERS {
-            // print sketch
-            let idx: u32 = i.try_into().unwrap();
-            let sketch: CountSketch = array.get(&idx, 0)?;
-            //println!("the {}th layer\n", i);
-
-            // print each topk
-            for j in 0..HEAP_SIZE {
-                //println!("topk[{}]: {:?}", j, sketch.topk[j]);
-            }
-
-            //println!("sketch: {:?}", sketch.topk);
-            //println!("sketch: {:?}", sketch);
-        }
-        //last = sketches.clone();
-
-        std::thread::sleep(std::time::Duration::from_secs(3));
+        let idx: u32 = 0;
+        let sketch: CountSketch = array.get(&idx, 0)?;
+        println!("{:?}", sketch.topk);
+        //println!("cnt: {:?}", sketch.cnt);
+        
+        
+        std::thread::sleep(std::time::Duration::from_secs(2));
     }
 
     ingress.detach(link_id)?;

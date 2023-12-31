@@ -1,26 +1,14 @@
 [package]
-name = "rs"
+name = "dummy_sketch"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-
-# it seems the 0.11 version can not handle section .maps rightly.
 aya = { git = "https://github.com/aya-rs/aya.git" }
 colored = "2"
-
 anyhow = "1.0"
 rand = "0.8"
 rand_distr = "0.4"
-
-
-[workspace]
-
-members = [
-    "count_sketch",
-    "univmon_sketch",
-    "dummy_sketch",
-    "hash"
-]
+hash = { path = "../hash" }

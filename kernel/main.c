@@ -29,8 +29,8 @@
 
 //char LICENSE[] SEC("license") = "Dual BSD/GPL";
 
-#define K_FUNC 10
-#define COLUMN 2048
+#define K_FUNC 7
+#define COLUMN 512
 #define LAYERS 32
 #define HEAP_SIZE 35
 
@@ -152,7 +152,7 @@ static __attribute__((always_inline)) inline __u32 fasthash32(const void *buf, _
 
 struct global_stats {
     uint32_t total_pkts;
-} __attribute__((packed));
+};
 
 
 
@@ -381,6 +381,7 @@ int xdp_rcv(struct xdp_md *ctx) {
     void *data = (void *)(long)ctx->data;
     
     if (data + sizeof(struct ethhdr) + sizeof(struct iphdr) > data_end) {
+        //bpf_printk("packet is too small\n");
         return ACTION;
     }
     struct ethhdr *eth = data;
@@ -395,14 +396,14 @@ int xdp_rcv(struct xdp_md *ctx) {
 
     if (iphdr->protocol == IPPROTO_TCP) {
         tcphdr = data + sizeof(struct ethhdr) + sizeof(struct iphdr);
-        if (tcphdr + sizeof(struct tcphdr) > data_end) {
+        if ((void*)tcphdr + sizeof(struct tcphdr) > data_end) {
             return ACTION;
         }
         t.src_port = tcphdr->source;
         t.dst_port = tcphdr->dest;
     } else if (iphdr->protocol == IPPROTO_UDP) {
         udphdr = data + sizeof(struct ethhdr) + sizeof(struct iphdr);
-        if (udphdr + sizeof(struct udphdr) > data_end) {
+        if ((void*)udphdr + sizeof(struct udphdr) > data_end) {
             return ACTION;
         }
         t.src_port = udphdr->source;
@@ -439,8 +440,8 @@ int xdp_rcv(struct xdp_md *ctx) {
     uint32_t gs_key = 0;
     struct global_stats *gs = bpf_map_lookup_elem(&stats, &gs_key);
     if (gs) {
-        
-        gs->total_pkts++;
+        __sync_fetch_and_add(&gs->total_pkts, 1);
+        //gs->total_pkts++;
     }
     
     uint32_t max_l = min(trailing_zeros2(sk), LAYERS);
@@ -449,6 +450,7 @@ int xdp_rcv(struct xdp_md *ctx) {
     //loop_ctx.i = 0;
     loop_ctx.max_l = max_l;
     loop_ctx.t = t;
+    
     //loop_ctx.skt = &um_sketch;
     //struct count_sketch skt_tmp[LAYERS] = bpf_map_lookup_elem(&univmon_sketch, &max_l);
     bpf_loop(LAYERS, update, &loop_ctx, 0);

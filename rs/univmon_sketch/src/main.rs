@@ -11,18 +11,20 @@ use std::mem;
 use aya::programs::Xdp;
 use aya::util::nr_cpus;
 
-mod hash;
 use colored::Colorize;
 use hash::FastHash;
 
 const K_FUNC: usize = 7;
-const COLUMN: usize = 512;
+const COLUMN: usize = 2048;
 const HEAP_SIZE: usize = 35;
 const LAYERS: usize = 32;
 
+
+const P: f64 = 1.0;
+
 const SEED_UNIVMON: u64 = 0x9747b28c;
 
-const RND_CNT: usize = 100;
+const RND_CNT: usize = 5000;
 
 #[derive(Copy, Clone, Default, PartialEq, Eq)]
 #[repr(C, packed)]
@@ -40,6 +42,7 @@ struct Meta {
     rnd: [u32; RND_CNT],
     idx: u32,
     rnd_idx: u32,
+    cnt: u32
 }
 
 impl Default for Meta {
@@ -48,6 +51,7 @@ impl Default for Meta {
             rnd: [0; RND_CNT],
             idx: 0,
             rnd_idx: 0,
+            cnt: 0
         }
     }
 }
@@ -274,28 +278,17 @@ fn estimate_change(sketches: &[CountSketch; LAYERS], last_sketches: &[CountSketc
 fn load_bpf() -> Result<(), anyhow::Error> {
 
 
-    let mut bpf = Bpf::load_file("../build/kernel/kernel.o").unwrap();
+    let mut bpf = Bpf::load_file("../build/kernel/univ_opt.o").unwrap();
 
-    bpf.maps().for_each(|map| {
-        println!("map: {:?}", map);
-    });
-
-    /*
     let mut rnd: Array<&mut aya::maps::MapData, Meta> =
         Array::try_from(bpf.map_mut("meta").unwrap())?;
 
-    let geo = Geometric::new(0.25).unwrap();
+    let geo = Geometric::new(P).unwrap();
     let mut meta = Meta::default();
     for i in 0..RND_CNT {
-        meta.rnd[i] = geo.sample(&mut rand::thread_rng()) as u32;
+        meta.rnd[i] = (geo.sample(&mut rand::thread_rng()) + 1) as u32;
     }
-    println!("meta: {:?}", meta);
-    rnd.set(0, &meta, 0)?;*/
-    //println!("bpf: {:?}", bpf);
-    //println!("success\n");
-
-
-
+    rnd.set(0, &meta, 0)?;
 
     let ingress: &mut Xdp = bpf.program_mut("xdp_rcv").unwrap().try_into()?;
     ingress.load()?;
@@ -303,7 +296,6 @@ fn load_bpf() -> Result<(), anyhow::Error> {
     //println!("success\n");
     let link_id = ingress.attach("veth0", XdpFlags::DRV_MODE).unwrap();
 
-    //println!("hello\n");
     let array: Array<&aya::maps::MapData, CountSketch> =
         Array::try_from(bpf.map("um_sketch").unwrap()).unwrap();
 
@@ -311,10 +303,9 @@ fn load_bpf() -> Result<(), anyhow::Error> {
         Array::try_from(bpf.map("stats").unwrap()).unwrap();
     let zero = 0;
 
-    // set array[1] = 42 for all cpus
-    let nr_cpus = nr_cpus()?;
-    let mut last = Box::new([CountSketch::default(); LAYERS]);
-    println!("nr_cpus: {}", nr_cpus);
+
+    //let mut last = Box::new([CountSketch::default(); LAYERS]);
+
     loop {
         //println!("BEGIN\n");
         let stats = stats_arr.get(&zero, 0)?;
@@ -358,8 +349,6 @@ fn load_bpf() -> Result<(), anyhow::Error> {
                 //println!("topk[{}]: {:?}", j, sketch.topk[j]);
             }
 
-            //println!("sketch: {:?}", sketch.topk);
-            //println!("sketch: {:?}", sketch);
         }
         //last = sketches.clone();
 

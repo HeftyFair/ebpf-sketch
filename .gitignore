@@ -2,3 +2,5 @@ test
 build
 rs/target
 *.pcap
+py/ebpf
+pcap

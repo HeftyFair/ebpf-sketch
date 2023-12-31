@@ -56,6 +56,9 @@
         "typeinfo": "cpp",
         "xxhash64.h": "c",
         "jhash.h": "c",
-        "murmurhash.h": "c"
+        "murmurhash.h": "c",
+        "stddef.h": "c",
+        "ipv6.h": "c",
+        "fasthash.h": "c"
     }
 }
