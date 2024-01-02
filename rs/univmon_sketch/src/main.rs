@@ -24,7 +24,7 @@ const P: f64 = 1.0;
 
 const SEED_UNIVMON: u64 = 0x9747b28c;
 
-const RND_CNT: usize = 5000;
+const RND_CNT: usize = 4096;
 
 #[derive(Copy, Clone, Default, PartialEq, Eq)]
 #[repr(C, packed)]
@@ -215,23 +215,23 @@ fn estimate_f64(sketches: &[CountSketch; LAYERS], g: impl Fn(f64) -> f64) -> f64
     y[0]
 }
 
-fn estimate(sketches: &[CountSketch; LAYERS], g: impl Fn(i32) -> i32) -> i32 {
+fn estimate(sketches: &[CountSketch; LAYERS], g: impl Fn(i64) -> i64) -> i64 {
     // Your code logic here
-    let mut y: [i32; LAYERS] = [0; LAYERS];
+    let mut y: [i64; LAYERS] = [0; LAYERS];
     for i in 0..LAYERS {
         for k in 0..HEAP_SIZE {
-            y[i] += g(sketches[i].topk[k].value);
+            y[i] += g(sketches[i].topk[k].value as i64);
         }
     }
 
     for i in (0..LAYERS - 1).rev() {
-        let mut yy = 0;
+        let mut yy: i64 = 0;
         for k in 0..HEAP_SIZE {
-            let hk = sketches[i].topk[k].tuple.h(i + 1);
+            let hk = sketches[i].topk[k].tuple.h(i + 1) as i64;
             //println!("hash {:#x}", sketches[i].topk[k].tuple.hash32(SEED_UNIVMON));
             //println!("hk: {} on {} for t5 {:?}", hk, i + 1,  sketches[i].topk[k].tuple);
 
-            yy += (1 - 2 * hk) * g(sketches[i].topk[k].value);
+            yy += (1 - 2 * hk) * g(sketches[i].topk[k].value as i64);
         }
         y[i] = y[i + 1] * 2 + yy;
     }
@@ -321,9 +321,9 @@ fn load_bpf() -> Result<(), anyhow::Error> {
             //sketch.print();
         }
         println!("total pkts: {}", tot);
-        let r = estimate(sketches.borrow(), |x: i32| x);
+        let r = estimate(sketches.borrow(), |x: i64| x);
         println!("estimated packet number: {}", r);
-        let rr = estimate(sketches.borrow(), |x: i32| if x == 0 { 0 } else { 1 });
+        let rr = estimate(sketches.borrow(), |x: i64| if x == 0 { 0 } else { 1 });
         println!("estimated unique k: {}", rr);
         let est_entropy = estimate_f64(sketches.borrow(), |x: f64| {
             if x == 0.0 || tot == 0 {

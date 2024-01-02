@@ -22,12 +22,12 @@
 // char LICENSE[] SEC("license") = "Dual BSD/GPL";
 
 #define K_FUNC 7
-#define COLUMN 2048
+#define COLUMN 1024
 #define LAYERS 32
 #define HEAP_SIZE 15
-#define RND_CNT 5000
+#define RND_CNT 4096
 
-#define P_INVERSE 20
+#define P_INVERSE 100
 
 #define SEED_UNIVMON 0x9747b28c
 #define SEED_CMSKETCH 0xd6e2f2d9
@@ -200,7 +200,7 @@ static __attribute__((always_inline)) inline void topk_update(struct topk_entry 
 
 
 
-static void cs_update_sketch(struct count_sketch *skt, struct t5 *myt5)
+static __attribute__((always_inline)) inline void cs_update_sketch(struct count_sketch *skt, const struct t5 *myt5)
 {
     if (!skt || !myt5)
     {
@@ -220,9 +220,11 @@ static void cs_update_sketch(struct count_sketch *skt, struct t5 *myt5)
     uint32_t update_idx;
     uint32_t next;
     //uint64_t rnd_value = meta->idx;
+
     if (bpf_probe_read_kernel(&update_idx, sizeof(update_idx), &pmeta->idx) != 0) {
         return;
     }
+    //update_idx = tmp;
 
     for (int i = 0; i < K_FUNC; i++)
     {
@@ -232,39 +234,26 @@ static void cs_update_sketch(struct count_sketch *skt, struct t5 *myt5)
             break;
         } else {
             //update_idx = 0;
-            uint32_t seed = SEED_CMSKETCH + update_idx;
+            
             uint32_t hash = fasthash32(myt5, sizeof(struct t5), SEED_CMSKETCH + update_idx);
-            uint16_t index = hash & (COLUMN - 1);
-
+            //__u8 update = TEST_BIT(hash, 31);
+            uint16_t column = 0;
+            column = hash & (COLUMN - 1);
             // to get the *fucking* clang compiler not optimize out validation
-            volatile int idx_cnt = 0;
-            if (update_idx >= K_FUNC) {
-                bpf_printk("the sun rises from the west");
-            } else {
-                idx_cnt = update_idx;
-            }
-            //idx_cnt = update_idx >= K_FUNC ? update_idx - K_FUNC : update_idx;
-            //uint16_t idx_cnt = update_idx % K_FUNC;
-            //bpf_probe_read_kernel(&prev, sizeof(prev), &skt->_cnt[idx_cnt][index]);
-            //uint16_t index = 1;
+            uint8_t row = update_idx;
 
-            if (idx_cnt >= 0 && index >= 0 && index < COLUMN && idx_cnt < K_FUNC) {
-                //int prev = ;
-                //int prev = 1;
-                if (TEST_BIT(hash, 31))
-                {
-                    skt->_cnt[idx_cnt][index] = skt->_cnt[idx_cnt][index] - P_INVERSE;
-                }
-                else
-                {
-                    skt->_cnt[idx_cnt][index] = skt->_cnt[idx_cnt][index] + P_INVERSE;
-                }
+            if (TEST_BIT(hash, 31)) {
+                skt->_cnt[row][column] = skt->_cnt[row][column] - P_INVERSE;
+            } else {
+                skt->_cnt[row][column] = skt->_cnt[row][column] - P_INVERSE;
             }
+            
         }
         uint32_t idx_rnd = pmeta->idx_rnd; 
-
+        //bpf_probe_read_kernel(&idx_rnd, sizeof(idx_rnd), &pmeta->idx_rnd);
         idx_rnd = (idx_rnd + 1) & (RND_CNT - 1);
         next = pmeta->rnd[idx_rnd]; 
+        //bpf_probe_read_kernel(&next, sizeof(next), &pmeta->rnd[idx_rnd]);
         update_idx += next;
         //bpf_printk("next: %d\n", next);
         pmeta->idx_rnd = idx_rnd;
@@ -288,7 +277,7 @@ static int cs_query_sketch(struct count_sketch *skt, struct t5 *t)
     // bpf_probe_read_kernel(&t_tmp, sizeof(struct t5), &t);
     int value[K_FUNC] = {0};
 
-#pragma clang loop unroll(full)
+//#pragma clang loop unroll(full)
     for (int i = 0; i < K_FUNC; i++)
     {
         uint32_t hash = fasthash32(t, sizeof(struct t5), SEED_CMSKETCH + i);

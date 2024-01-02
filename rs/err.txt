@@ -1,0 +1,212 @@
+   Compiling univmon_sketch v0.1.0 (/home/kwqcheii/source/ebpf-sketch/rs/univmon_sketch)
+   Compiling univmon_sketch v0.1.0 (/home/kwqcheii/source/ebpf-sketch/rs/univmon_sketch)
+warning: unused imports: `PerCpuArray`, `PerCpuValues`
+ --> univmon_sketch/src/main.rs:1:24
+  |
+1 | use aya::maps::{Array, PerCpuArray, PerCpuValues};
+  |                        ^^^^^^^^^^^  ^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: unused imports: `CgroupSkbAttachType`, `CgroupSkb`
+ --> univmon_sketch/src/main.rs:2:21
+  |
+2 | use aya::programs::{CgroupSkb, CgroupSkbAttachType, XdpFlags};
+  |                     ^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `core::panic`
+ --> univmon_sketch/src/main.rs:4:5
+  |
+4 | use core::panic;
+  |     ^^^^^^^^^^^
+
+warning: unused import: `std::backtrace::Backtrace`
+ --> univmon_sketch/src/main.rs:6:5
+  |
+6 | use std::backtrace::Backtrace;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `BorrowMut`
+ --> univmon_sketch/src/main.rs:7:27
+  |
+7 | use std::borrow::{Borrow, BorrowMut};
+  |                           ^^^^^^^^^
+
+warning: unused import: `std::fs::File`
+ --> univmon_sketch/src/main.rs:8:5
+  |
+8 | use std::fs::File;
+  |     ^^^^^^^^^^^^^
+
+warning: unused import: `aya::util::nr_cpus`
+  --> univmon_sketch/src/main.rs:12:5
+   |
+12 | use aya::util::nr_cpus;
+   |     ^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `PerCpuArray`, `PerCpuValues`
+ --> univmon_sketch/src/main.rs:1:24
+  |
+1 | use aya::maps::{Array, PerCpuArray, PerCpuValues};
+  |                        ^^^^^^^^^^^  ^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: unused imports: `CgroupSkbAttachType`, `CgroupSkb`
+ --> univmon_sketch/src/main.rs:2:21
+  |
+2 | use aya::programs::{CgroupSkb, CgroupSkbAttachType, XdpFlags};
+  |                     ^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `core::panic`
+ --> univmon_sketch/src/main.rs:4:5
+  |
+4 | use core::panic;
+  |     ^^^^^^^^^^^
+
+warning: unused import: `std::backtrace::Backtrace`
+ --> univmon_sketch/src/main.rs:6:5
+  |
+6 | use std::backtrace::Backtrace;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `BorrowMut`
+ --> univmon_sketch/src/main.rs:7:27
+  |
+7 | use std::borrow::{Borrow, BorrowMut};
+  |                           ^^^^^^^^^
+
+warning: unused import: `std::fs::File`
+ --> univmon_sketch/src/main.rs:8:5
+  |
+8 | use std::fs::File;
+  |     ^^^^^^^^^^^^^
+
+warning: unused import: `aya::util::nr_cpus`
+  --> univmon_sketch/src/main.rs:12:5
+   |
+12 | use aya::util::nr_cpus;
+   |     ^^^^^^^^^^^^^^^^^^
+
+warning: unreachable statement
+   --> univmon_sketch/src/main.rs:358:5
+    |
+309 | /     loop {
+310 | |         //println!("BEGIN\n");
+311 | |         let stats = stats_arr.get(&zero, 0)?;
+312 | |         let tot = stats.total_pkts;
+...   |
+355 | |         std::thread::sleep(std::time::Duration::from_secs(3));
+356 | |     }
+    | |_____- any code following this expression is unreachable
+357 |
+358 |       ingress.detach(link_id)?;
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^ unreachable statement
+    |
+    = note: `#[warn(unreachable_code)]` on by default
+
+warning: unreachable statement
+   --> univmon_sketch/src/main.rs:358:5
+    |
+309 | /     loop {
+310 | |         //println!("BEGIN\n");
+311 | |         let stats = stats_arr.get(&zero, 0)?;
+312 | |         let tot = stats.total_pkts;
+...   |
+355 | |         std::thread::sleep(std::time::Duration::from_secs(3));
+356 | |     }
+    | |_____- any code following this expression is unreachable
+357 |
+358 |       ingress.detach(link_id)?;
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^ unreachable statement
+    |
+    = note: `#[warn(unreachable_code)]` on by default
+
+warning: unused variable: `link_id`
+   --> univmon_sketch/src/main.rs:297:9
+    |
+297 |     let link_id = ingress.attach("veth0", XdpFlags::DRV_MODE).unwrap();
+    |         ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_link_id`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `link_id`
+   --> univmon_sketch/src/main.rs:297:9
+    |
+297 |     let link_id = ingress.attach("veth0", XdpFlags::DRV_MODE).unwrap();
+    |         ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_link_id`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: method `hash` is never used
+  --> univmon_sketch/src/main.rs:74:8
+   |
+73 | impl T5 {
+   | ------- method in this implementation
+74 |     fn hash(&self, seed: u64) -> u64 {
+   |        ^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+warning: function `lookup` is never used
+   --> univmon_sketch/src/main.rs:150:4
+    |
+150 | fn lookup(t5s: &[T5; HEAP_SIZE], t5: &T5) -> Option<i32> {
+    |    ^^^^^^
+
+warning: methods `print` and `lookup` are never used
+   --> univmon_sketch/src/main.rs:166:8
+    |
+165 | impl CountSketch {
+    | ---------------- methods in this implementation
+166 |     fn print(&self) {
+    |        ^^^^^
+...
+174 |     fn lookup(&self, t5: &T5) -> Option<i32> {
+    |        ^^^^^^
+
+warning: function `estimate_change` is never used
+   --> univmon_sketch/src/main.rs:241:4
+    |
+241 | fn estimate_change(sketches: &[CountSketch; LAYERS], last_sketches: &[CountSketch; LAYERS]) {
+    |    ^^^^^^^^^^^^^^^
+
+warning: method `hash` is never used
+  --> univmon_sketch/src/main.rs:74:8
+   |
+73 | impl T5 {
+   | ------- method in this implementation
+74 |     fn hash(&self, seed: u64) -> u64 {
+   |        ^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+warning: function `lookup` is never used
+   --> univmon_sketch/src/main.rs:150:4
+    |
+150 | fn lookup(t5s: &[T5; HEAP_SIZE], t5: &T5) -> Option<i32> {
+    |    ^^^^^^
+
+warning: methods `print` and `lookup` are never used
+   --> univmon_sketch/src/main.rs:166:8
+    |
+165 | impl CountSketch {
+    | ---------------- methods in this implementation
+166 |     fn print(&self) {
+    |        ^^^^^
+...
+174 |     fn lookup(&self, t5: &T5) -> Option<i32> {
+    |        ^^^^^^
+
+warning: function `estimate_change` is never used
+   --> univmon_sketch/src/main.rs:241:4
+    |
+241 | fn estimate_change(sketches: &[CountSketch; LAYERS], last_sketches: &[CountSketch; LAYERS]) {
+    |    ^^^^^^^^^^^^^^^
+
+warning: `univmon_sketch` (bin "univmon_sketch") generated 13 warnings (run `cargo fix --bin "univmon_sketch"` to apply 8 suggestions)
+    Finished dev [unoptimized + debuginfo] target(s) in 0.34s
+warning: `univmon_sketch` (bin "univmon_sketch") generated 13 warnings (run `cargo fix --bin "univmon_sketch"` to apply 8 suggestions)
+    Finished dev [unoptimized + debuginfo] target(s) in 0.34s
+     Running `sudo -E target/debug/univmon_sketch`
+     Running `sudo -E target/debug/univmon_sketch`

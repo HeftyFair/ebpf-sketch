@@ -16,15 +16,15 @@ use colored::Colorize;
 
 
 const K_FUNC: usize = 7;
-const COLUMN: usize = 2048;
+const COLUMN: usize = 1024;
 const HEAP_SIZE: usize = 15;
 const LAYERS: usize = 1;
 
-const P: f64 = 0.05;
+const P: f64 = 0.01;
 
 const SEED_UNIVMON: u64 = 0x9747b28c;
 
-const RND_CNT: usize = 5000;
+const RND_CNT: usize = 4096;
 
 #[derive(Copy, Clone, Default, PartialEq, Eq)]
 #[repr(C, packed)]

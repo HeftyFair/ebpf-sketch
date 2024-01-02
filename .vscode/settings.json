@@ -59,6 +59,8 @@
         "murmurhash.h": "c",
         "stddef.h": "c",
         "ipv6.h": "c",
-        "fasthash.h": "c"
+        "fasthash.h": "c",
+        "chrono": "c",
+        "variant": "c"
     }
 }
